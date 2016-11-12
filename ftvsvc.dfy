@@ -11,6 +11,24 @@ type VC = seq<int>
 type ThreadsMap = map<Tid, ThreadState>
 type VarsMap = map<Var, VarState>
 
+
+ghost method add() returns (res : int)
+{
+	return 0;
+}
+
+ghost method sub() returns (res : int)
+{
+	return 0;
+}
+
+/*lemma same()
+ensures (var x := add(); var y := sub(); x == y)
+{
+
+}*/
+
+
 /* ghost method race(trace : Trace, size : nat, vars : seq<char>) returns (res : bool)
 requires |trace| > 0
 requires size > 0
@@ -139,7 +157,7 @@ ensures res == true ==> exists i : int :: 0 <= i < |vs.vc| && vs.vc[i] > ts.vc[i
 	//assert exists i : int :: 0 <= i < |vs.vc| ==> vs.vc[i] <= ts.vc[i];
 }
 
-ghost method findRaceFT(trace : Trace, size : nat, vars : seq<char>, ftmode: bool) returns ( res : bool)
+ghost method findRaceFT(trace : Trace, size : nat, vars : seq<char>, ftmode: bool) returns ( resft : bool, resdjit: bool)
 requires |trace| > 0
 requires size > 0
 requires |vars| > 0
@@ -147,6 +165,7 @@ requires forall i,j : int :: 0 <= i < j < |vars| ==> vars[i] != vars[j]
 requires forall i : int :: 0 <= i < |trace| ==> 0 <= trace[i].tid < size
 requires forall i : int :: 0 <= i < |trace| ==> trace[i].loc in vars
 requires forall c : char :: c in vars <==> c in getVars(trace,[])
+ensures resft == resdjit;
 //ensures var ft := findRaceFT(trace, size, vars, true); var djit := findRaceFT(trace, size, vars, false); ft==djit;
 {
 
@@ -155,11 +174,11 @@ requires forall c : char :: c in vars <==> c in getVars(trace,[])
 	var c := findLargestEpoch(lmap[vars[0]]);
 	var q := lmap[vars[0]].epoch;
 	assert c.tid == 0;
-	var resft := false;
-	var resdjit := false;
+	resft := false;
+	resdjit := false;
 
 	var i := 0;
-	res := false;
+	//res := false;
 	while( i < |trace|)
 	invariant forall i:char :: i in lmap ==> |lmap[i].vc| == size;
 	invariant forall i:char :: i in lmap ==> i in vars;
@@ -169,53 +188,53 @@ requires forall c : char :: c in vars <==> c in getVars(trace,[])
 	invariant resft == resdjit
 	invariant forall i : int :: 0 <= i < size ==> i in tmap
 	{
-	var op := trace[i];
-	match op
-	case Write(tid, loc) => {
-	var ts := tmap[tid];
-	var vs := lmap[loc];
-	var e := vs.epoch;
-	assume forall i : int :: 0 <= i < |vs.vc| ==> vs.vc[i] <= ts.vc[i];
-	resft := ftChecker(ts,vs);
-	resdjit := djitChecker(ts,vs);
-	assert resft == resdjit;
+		var op := trace[i];
+		match op
+		case Write(tid, loc) => {
+		var ts := tmap[tid];
+		var vs := lmap[loc];
+		var e := vs.epoch;
+		assume forall i : int :: 0 <= i < |vs.vc| ==> vs.vc[i] <= ts.vc[i];
+		resft := ftChecker(ts,vs);
+		resdjit := djitChecker(ts,vs);
+		assert resft == resdjit;
+		//assert 3==2;
+		if(resft == true)
+		{
+			//res := true;
+			return resft, resdjit;
+		}
+		else
+		{
+			//update ts
+			var tsv := ts.vc[tid];
+			tsv := tsv + 1;
+			var vct := ts.vc;
+			vct := vct[tid := tsv];
+			var tst := ThreadState(i, vct);
+			tmap := tmap[tid := tst];
 
-	if(resft == true)
-	{
-		res := true;
-		return res;
-	}
-	else
-	{
-		//update ts
-		var tsv := ts.vc[tid];
-		tsv := tsv + 1;
-		var vct := ts.vc;
-		vct := vct[tid := tsv];
-		var tst := ThreadState(i, vct);
-		tmap := tmap[tid := tst];
+			//update vs
+			var vsv := vs.vc[tid];
+			vsv := vsv + 1;
+			var vsvct := vs.vc;
+			vsvct := vsvct[tid := vsv];
+			var et := Epoch(tid,vs.vc[tid]);
+			var vst := VarState(loc, et,vsvct);
+		}
+		//checkWriteDJIT
+		assert resft == resdjit;
+		//assert checkWriteFT(...) == checkWriteDJIT(...)
 
-		//update vs
-		var vsv := vs.vc[tid];
-		vsv := vsv + 1;
-		var vsvct := vs.vc;
-		vsvct := vsvct[tid := vsv];
-		var et := Epoch(tid,vs.vc[tid]);
-		var vst := VarState(loc, et,vsvct);
-	}
-	//checkWriteDJIT
-	
-	//assert checkWriteFT(...) == checkWriteDJIT(...)
-
-	//var c := findLargestEpoch(vs);
-	assert forall i : int :: 0 <= i < |vs.vc| ==> e.val - vs.vc[i] >= 0;
-	//forall values in the vector clock of the variable written the epoch is equal or larger
-	//ft only checks if the epoch is greater to return an error
-	//djit checks if any are greater to return an error
-	assert e.val == c.val;
-	//assert e.tid == c.tid;
-	} 
-	i := i + 1;
+		//var c := findLargestEpoch(vs);
+		assert forall i : int :: 0 <= i < |vs.vc| ==> e.val - vs.vc[i] >= 0;
+		//forall values in the vector clock of the variable written the epoch is equal or larger
+		//ft only checks if the epoch is greater to return an error
+		//djit checks if any are greater to return an error
+		assert e.val == c.val;
+		//assert e.tid == c.tid;
+		} 
+		i := i + 1;
 	}
 } 
 
