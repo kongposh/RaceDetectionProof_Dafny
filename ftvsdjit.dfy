@@ -12,16 +12,32 @@ type Var = char
 type Trace = seq<Op>
 type VC = seq<int>
 
+predicate method isValidTrace(size : nat, vars : seq<char>)
+{
+	size > 0 && |vars| > 0 && isVarsUnique(vars)
+}
+
+predicate method isVarsUnique(vars : seq<char>)
+{
+	forall i,j : int :: 0 <= i < j < |vars| ==> vars[i] != vars[j]
+}
+
+predicate method isWellFormedFt(res : FtState)
+//ensures isWellFormed(res) == true ==> 
+{
+ ensures forall i:int :: i in res.ts <==> 0 <= i < |res.ts|
+}
+
+
 ghost method ftStart(size : nat, vars : seq<char>) returns (res : FtState)
-requires size > 0
-requires |vars| > 0
-requires forall i,j : int :: 0 <= i < j < |vars| ==> vars[i] != vars[j]
-ensures forall i:int :: i in res.ts <==> 0 <= i < size
+requires isValidTrace(size,vars)
+ensures |res.ts| == size
+ensures forall i:int :: i in res.ts <==> 0 <= i < |res.ts|
 ensures forall j : int :: 0 <= j < size ==> |res.ts[j]| == size
 ensures forall j : int :: 0 <= j < size ==> forall i : int :: 0 <= i < size ==> res.ts[j][i] == 0
-ensures forall i:char :: i in res.vs ==> i in vars
+ensures forall i:char :: i in res.vs <==> i in vars
+//ensures test(res,vars)
 ensures forall i : char :: i in res.vs ==> 0 <= res.vs[i].tid < size
-ensures forall i : char :: i in vars ==> i in res.vs
 ensures forall i : int :: 0 <= i < size ==> forall j : int :: 0 <= j < size ==> res.ts[i][j] == 0
 ensures forall i : char :: i in res.vs ==> res.vs[i].val == 0
 {
@@ -120,9 +136,8 @@ ensures (res.Just?) ==> op.loc in res.value.vs
 ensures (res.Just?) ==> op.tid in res.value.ts
 ensures (res.Just?) ==> res.value.vs[op.loc].tid in res.value.ts
 ensures (res.Just?) ==> 0 <= res.value.vs[op.loc].tid < size
-ensures (res == Nothing) ==> (exists i : int :: 0 <= i < size && fs.vs[op.loc].val > fs.ts[op.tid][i]);
-ensures(res.Just?) ==> fs.vs[op.loc].val <= fs.ts[op.tid][fs.vs[op.loc].tid];
-ensures (res == Nothing) ==> fs.vs[op.loc].val <= fs.ts[op.tid][fs.vs[op.loc].tid];
+ensures(res.Just?) ==> res.value.vs[op.loc].val <= res.value.ts[op.tid][res.value.vs[op.loc].tid];
+ensures (res == Nothing) ==> fs.vs[op.loc].val > fs.ts[op.tid][fs.vs[op.loc].tid];
 {
 	
 	match op
@@ -155,39 +170,7 @@ ensures (res == Nothing) ==> fs.vs[op.loc].val <= fs.ts[op.tid][fs.vs[op.loc].ti
 		}
 	}
 	
-}
-		/*if(fs.vs[loc].val > fs.ts[tid][eid])
-		{
-			res := Nothing;
-		}
-		else
-		{*/
-			//ts
-			/*var tmapTemp := fs.ts;
-			var tvcTemp := tmapTemp[tid];
-			var tvalTemp := tvcTemp[tid] + 1;
-			tvcTemp := tvcTemp[tid := tvalTemp];
-			tmapTemp := tmapTemp[tid := tvcTemp];
-
-			//fs
-			var emapTemp := fs.vs;
-			var evalTemp := tmapTemp[tid][tid];
-			var eTemp := Epoch(tid, evalTemp);
-			emapTemp := emapTemp[loc := eTemp];
-			var fsTemp := FtState(tmapTemp, emapTemp);
-			assert fsTemp.vs[loc].val == fsTemp.ts[tid][tid];
-			assert forall i : int :: 0 <= i < size ==> fsTemp.vs[op.loc].val <= fsTemp.ts[op.tid][i];*/
-			
-	
-
-/*function ftstep_func(fs : FtState, size : nat) : opt<FtState>
-{
-	ftStep(fs,size)
-}
-function djitstep_func(ds : FtState, size : nat) : opt<DjitState>
-{
-	djitStep(ds,size)
-} */
+}	
 
 lemma ftstep_equals_djitstep(fs : FtState, ds : DjitState, op :  Op, size :nat)
 requires size > 0
@@ -196,22 +179,41 @@ requires op.loc in fs.vs
 requires op.tid in fs.ts
 requires forall i : char :: i in fs.vs ==> 0 <= fs.vs[i].tid < size
 requires forall j : int :: j in fs.ts ==> |fs.ts[j]| == size
-requires forall i : int :: 0 <= i < |fs.ts[op.tid]| && i != fs.vs[op.loc].tid ==> fs.vs[op.loc].val <= fs.ts[op.tid][i]
 requires fs.vs[op.loc].tid in fs.ts
 requires 0 <= fs.vs[op.loc].tid < size
 requires fs.vs[op.loc].val <= fs.ts[op.tid][fs.vs[op.loc].tid]
 requires op.loc in ds.vs
 requires op.tid in ds.ts
 requires forall j : int :: j in ds.ts ==> |ds.ts[j]| == size 
-requires forall j : char :: j in ds.vs ==> |ds.vs[j]| == size 
+requires forall j : char :: j in ds.vs ==> |ds.vs[j]| == size
+
+requires forall i : int :: 0 <= i < size ==> ds.ts[op.tid][i] >= ds.vs[op.loc][i];
+
+//same thread states
 requires forall i : int :: 0 <= i < size ==> fs.ts[op.tid][i] == ds.ts[op.tid][i]
 requires forall i : int :: 0 <= i < size ==> ds.vs[op.loc][i] <= fs.vs[op.loc].val
 requires (fs.vs[op.loc].val == ds.vs[op.loc][fs.vs[op.loc].tid]);
+
+ensures forall i : int :: 0 <= i < size ==> ds.vs[op.loc][i] <= fs.vs[op.loc].val;
+ensures forall i : int :: 0 <= i < size ==> fs.ts[op.tid][i] == ds.ts[op.tid][i]
+ensures forall i : int :: 0 <= i < size ==> ds.vs[op.loc][i] <= fs.vs[op.loc].val
+ensures (fs.vs[op.loc].val == ds.vs[op.loc][fs.vs[op.loc].tid]);
 {
+	match op
+	case Write(tid,loc) => {
 	var ft := ftStep(fs, op, size);
 	var djit := djitStep(ds,op,size);
 	assert ft.Just? <==> djit.Just?;
+	assert ft.Just? ==> forall i : int :: 0 <= i < size ==> ds.vs[op.loc][i] <= fs.vs[op.loc].val;
+	assert ft.Just? ==> fs.vs[loc].val <= fs.ts[tid][fs.vs[loc].tid];
+	assert djit.Just? ==> forall i : int :: 0 <= i < size ==> ds.ts[tid][i] >= ds.vs[loc][i];
 	assert ft == Nothing <==> djit == Nothing;
+	//forall i : int :: 0 <= i < size ==> res.value.vs[op.loc][i] <= res.value.ts[op.tid][i]
+	}
+
+	
+	//assert ft.Just? <==> djit.Just?;
+	//assert ft == Nothing <==> djit == Nothing;
 }
 
 /*lemma maxIdinTrace(trace : Trace)

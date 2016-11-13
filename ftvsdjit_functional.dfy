@@ -1,81 +1,135 @@
-datatype Op = Write(tid:int, loc: char)
+datatype Op = Write(tid:int, loc: int)
 datatype opt<T> = Just(value: T) | Nothing
 datatype FtState = FtState(ts : ThreadsMap, vs: EpochMap, ls : VarsMap)
-datatype DjitState = DjitState(ts : ThreadsMap, vs: VarsMap)
+datatype DjitState = DjitState(ts : ThreadsMap, vs: VarsMap, ls : VarsMap)
 datatype Epoch = Epoch(tid : int, val : int)
 type ThreadsMap = map<int, VC>
-type VarsMap = map<char, VC>
-type EpochMap = map<char, Epoch>
+type VarsMap = map<int, VC>
+type EpochMap = map<int, Epoch>
 type Trace = seq<Op>
 type VC = map<int,int>
 
 //The initial state of the fast track algorithm which returns an
 //empty map for each map in the state.
-/*function ftStart(numberOfThreads : nat) : FtState
-requires numberOfThreads > 0
+function ftStart() : FtState
+ensures (wellFormed(ftStart()))
 {
-	var tmap := createThreadsMap(numberOfThreads);
-	assert |tmap| == numberOfThreads;
-	assert forall t : int :: t in tmap ==> |tmap[t]| == numberOfThreads;
-	assert forall t,u : int :: t in tmap && u in tmap && u != t ==> tmap[u][t] < tmap[t][t];
+	var tmap := map[];
 	var emap := map[];
 	var lmap := map[];
-	//assert 3 == 4;
-	FtState(tmap,emap, lmap)
+	FtState(tmap,emap,lmap)
 }
 
-function createThreadsMap(numberOfThreads : nat) : ThreadsMap
-//ensures forall t : int :: t in createThreadsMap(numberOfThreads) ==> |createThreadsMap(numberOfThreads)[t]| == numberOfThreads
-//ensures |createThreadsMap(numberOfThreads)| == numberOfThreads
-{
-	var v := initThreadMap(numberOfThreads,numberOfThreads);
-	//assert |v| == 3;
-	//assert v[1][1] == v[0][0];
-	assert forall t,u : int :: t in v && u in v && u != t ==> v[u][t] < v[t][t];
-	v
+
+predicate wellFormed(res : FtState) {
+ //forall i :: i in res.ts ==> i in res.ts[i] && forall c : char :: c in res.vs && 
+// forall loc : int :: loc in res.vs && res.vs[c].tid in res.ts && res.vs[c].tid in res.ts[res.vs[c].tid] ==> ( res.vs[c].val <= res.ts[res.vs[c].tid][res.vs[c].tid] ) 
+ (forall loc : int :: loc in res.vs ==> res.vs[loc].val <= lookupVC(lookup(res.ts, res.vs[loc].tid), res.vs[loc].tid)) 
+// && (forall tid1 , tid2 : int :: tid1 in res.ts ==> lookupVC( lookup(res.ts, tid1) , tid1) >= lookupVC( lookup(res.ts, tid2) , tid1)) 
+ //forall loc : int :: lookupEpoch(res.vs, loc).val <= lookupVC(lookup(res.ts, lookupEpoch(res.vs, loc).tid), lookupEpoch(res.vs, loc).tid)
+ }
+
+function addThread(tmap: ThreadsMap, tid:int) : ThreadsMap 
+{ 
+	tmap[tid := map[tid := 0]]
 }
 
-function method initThreadMap(numberOfThreads : nat, const_numberOfThreads : nat) : ThreadsMap
-requires const_numberOfThreads >= numberOfThreads >=0
-ensures forall t : int :: t in initThreadMap(numberOfThreads,const_numberOfThreads) ==> 0 <= t < numberOfThreads
-ensures |initThreadMap(numberOfThreads, const_numberOfThreads)| == numberOfThreads
-ensures forall t : int :: t in initThreadMap(numberOfThreads,const_numberOfThreads) ==> |initThreadMap(numberOfThreads,const_numberOfThreads)[t]| == const_numberOfThreads;
-ensures (var tmap := initThreadMap(numberOfThreads,const_numberOfThreads); forall t : int :: t in tmap ==> tmap[t][t] == 1);
+function lookup(m:map<int, VC>, i:int) : VC
 {
-	if( numberOfThreads == 0) then map[]
-	else var tempMap := initThreadMap(numberOfThreads-1,const_numberOfThreads); tempMap[numberOfThreads-1 := getEmptyVC(numberOfThreads-1,const_numberOfThreads)]
+	if(i in m) then m[i] else map[]
 }
 
-function method getEmptyVC( currId : nat , numberOfThreads : nat) : seq<int>
-requires 0 <= currId 
-ensures |getEmptyVC(currId,numberOfThreads)| == numberOfThreads
-ensures (var m := getEmptyVC(currId,numberOfThreads); |m| >= currId ==> m[currId] == 1)
+function lookupVC(vc:VC, tid:int) : int
 {
-	if(numberOfThreads == 0) then []
-	else if(currId == numberOfThreads - 1) then getEmptyVC(currId,numberOfThreads-1)+[1]
-	else getEmptyVC(currId, numberOfThreads-1)+[0]
-}*/
+	if(tid in vc) then vc[tid] else 0
+}
+
+function lookupEpoch(m:map<int, Epoch>, i:int) : Epoch
+{
+	if(i in m) then m[i] else Epoch(i,0)
+}
+
+
+function incrementVC(vc:VC, threadID:int) : VC
+//ensures forall tid:int :: tid in vc ==> tid in incrementVC(vc, threadID)
+//ensures forall tid:int :: tid in vc ==> vc[tid] <= incrementVC(vc, threadID)[tid]
+{
+	if(threadID in vc)
+		then vc[threadID := vc[threadID]+1]
+		else vc[threadID :=  1]
+}
+
+function updateEpoch(threadID:int, threadVC:VC) : Epoch
+{
+	Epoch(threadID, lookupVC(threadVC, threadID))
+}
+
+function updateLocVC(threadID:int, threadVC:VC, locVC:VC) : VC
+{
+	locVC[threadID := lookupVC(threadVC, threadID)]
+}
+
+
+lemma proof(fs : FtState, ds : DjitState, op : Op)
+requires wellFormed(fs)
+requires wellFormedDjit(ds)
+ensures (ftStep(fs,op).Just? && djitStep(ds,op).Just?) ==> wellFormed(ftStep(fs,op).value) == wellFormedDjit(djitStep(ds,op).value);
+{
+
+}
+
 
 function ftStep(fs : FtState, op : Op) : opt<FtState>
-requires forall t,u : int :: t in fs.ts && u in fs.ts && u != t ==> fs.ts[u][t] < fs.ts[t][t]
+requires(wellFormed(fs))
+ensures (var res:= ftStep(fs,op); ftStep(fs,op).Just? ==> wellFormed(res.value))
+{
+	//assert lookupVC(lookup(fs.ts, lookupEpoch(fs.vs,op.loc).tid),lookupEpoch(fs.vs,op.loc).tid) >= lookupEpoch(fs.vs,op.loc).val; 
+	match op
+	case Write(tid, loc) =>
+		var threadVC := lookup(fs.ts, tid);
+		var locEpoch := lookupEpoch(fs.vs, loc);
+		var threadVC' := incrementVC(threadVC, tid);
+		var locEpoch' := updateEpoch(tid, threadVC);
+		if(lookupVC(threadVC', locEpoch.tid) < locEpoch.val) then Nothing
+		else
+			Just(FtState(fs.ts[tid := threadVC'], fs.vs[loc := locEpoch'], fs.ls))
+}
+
+function djitStart() : DjitState
+ensures wellFormedDjit(djitStart())
+{
+	var tmap := map[];
+	var vmap := map[];
+	var lmap := map[];
+	DjitState(tmap,vmap,lmap)
+}
+
+predicate wellFormedDjit(ds : DjitState) 
+{
+	forall i: int :: i in ds.vs ==> forall j : int :: j in lookup(ds.vs,i) ==> lookupVC(lookup(ds.ts,j),j) >= lookupVC(lookup(ds.vs,i),j)                     //lookupVC(lookup(ds.ts,j),j) >= lookupVC(lookup(ds.vs,i),j)
+}
+
+function djitStep(ds : DjitState, op : Op) : opt<DjitState>
+requires(wellFormedDjit(ds))
+ensures (var res:= djitStep(ds,op); djitStep(ds,op).Just? ==> wellFormedDjit(res.value))
 {
 	match op
-	case Write(tid, loc) => if(tid !in fs.ts && loc !in fs.vs) then Just(FtState(map[tid := map[tid := 1]], map[loc := Epoch(tid,0)],fs.ls)) 
-	else if (tid !in fs.ts) then Nothing
-	else if (tid in fs.ts && loc !in fs.vs) then var oldVal := fs.ts[tid][tid];  
-	
-	
-	//update ts
-	var tmap := fs.ts;
-	var tvc := tmap[tid]; 
-	var tval := tvc[tid] + 1;
-	var tvc := tvc[tid := tval];
-	var tmap := tmap [ tid := tvc];
-	Just(FtState(tmap,map[loc := Epoch(tid,0)],fs.ls))
-	else Nothing	
-	//var eid := if(tid !in fs.ts) then           //fs.vs[loc].tid; 
-	//if(fs.vs[loc].val > fs.ts[tid][eid]) then Nothing else Just(fs)
-} 
+	case Write(tid, loc) =>
+		var threadVC := lookup(ds.ts, tid);
+		var locVC := lookup(ds.vs, loc);
+		var threadVC' := incrementVC(threadVC, tid);
+		var locVC' := updateLocVC(tid, threadVC',locVC);
+		if(vcleq(threadVC, locVC)) then 
+			Just(DjitState(ds.ts[tid := threadVC'],ds.vs[loc := locVC'], ds.ls))
+		else 
+			Nothing
+}
+
+predicate vcleq ( threadVC : VC, locVC : VC)
+{
+	forall i : int :: i in locVC ==> lookupVC(threadVC, i) >= lookupVC(locVC, i)
+}
+
 
 
 
@@ -131,4 +185,17 @@ function getMaxIdF(t : Trace) : int
 	else 1
 	//else max(t[0].tid, getMaxIdF(t[1..])) 
 }
+
+/*
+requires forall i :: i in fs.ts ==> i in fs.ts[i]
+requires forall c :: c in fs.vs ==> fs.vs[c].tid in fs.ts
+requires (forall c : char :: c in fs.vs ==> fs.vs[c].val <= fs.ts[fs.vs[c].tid][fs.vs[c].tid])
+//requires op.tid in fs.ts ==> op.tid in fs.ts[op.tid]
+requires (op.loc in fs.vs && op.tid in fs.ts && fs.vs[op.loc].tid in fs.ts[op.tid] ==> var eid := fs.vs[op.loc].tid; var eval := fs.vs[op.loc].val; eval < fs.ts[op.tid][eid])
+ensures (var res:= ftStep(fs,op); res.Just? ==> res.value.vs[op.loc].val <= res.value.ts[op.tid][res.value.vs[op.loc].tid])
+//ensures (var res:= ftStep(fs,op); res.Just? ==> forall i :: i in res.value.ts ==> i in res.value.ts[i])
+//ensures (var res:= ftStep(fs,op); res.Just? ==> op.tid in fs.ts ==> op.tid in fs.ts[op.tid])
+//ensures (var res := ftStep(fs,op); res.Just? ==> forall c : char :: c in res.value.vs && res.value.vs[c].tid in res.value.ts ==> res.value.vs[c].val <= res.value.ts[res.value.vs[c].tid][res.value.vs[c].tid] )
+
+*/
 
